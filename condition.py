@@ -29,12 +29,12 @@ class BaseCondition(Condition):
         rc = np.zeros(len(x))
 
         # Get positions (x,y,z) for every atom of every cluster
-        x = np.reshape(x, newshape=(-1, 3))
+        x = np.reshape(x, (-1, 3))
 
         # Apply specific condition to atom positions
         g0 = self.condition(x)
         # Group the atoms together to form the clusters
-        g0 = np.reshape(g0, newshape=(-1, self.n_atoms))
+        g0 = np.reshape(g0, (-1, self.n_atoms))
         # Get only one bool value for every cluster
         g0 = np.all(g0, axis=1)
 
