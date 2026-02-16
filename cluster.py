@@ -118,7 +118,7 @@ def get_max_span_from_lj_cluster(
         lj_cluster: Positions of the LJ spheres.
     """
 
-    lj_cluster_resh = np.reshape(lj_cluster, newshape=(-1, 3))
+    lj_cluster_resh = np.reshape(lj_cluster, (-1, 3))
     max_x_span = abs(lj_cluster_resh[:, 0].min() - lj_cluster_resh[:, 0]).max()
     max_y_span = abs(lj_cluster_resh[:, 1].min() - lj_cluster_resh[:, 1]).max()
     max_z_span = abs(lj_cluster_resh[:, 2].min() - lj_cluster_resh[:, 2]).max()
