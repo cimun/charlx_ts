@@ -13,6 +13,7 @@ from ase import Atoms
 from ase.calculators.lj import LennardJones
 from ase.io.jsonio import decode
 from ase.visualize import view
+from ase.vibrations import Vibrations
 from mace.calculators import MACECalculator
 from tqdm import tqdm
 
@@ -332,3 +333,48 @@ def evaluate_population_with_calc(
         view(atoms_list_sorted)
 
     return torch.Tensor(energies)
+
+
+def check_saddle_point(atoms, eval_tol=0.1):
+    """
+    Quantifies saddle point quality using both mass-weighted frequencies 
+    and raw Hessian eigenvalues.
+    """
+    # 1. Run the vibration analysis
+    vib = Vibrations(atoms)
+    vib.run()
+    
+    # 2. Vibrational Frequency Analysis (Mass-Weighted)
+    freqs = vib.get_frequencies()
+    # In ASE, imaginary frequencies are returned as complex numbers (e.g., 0+500j)
+    imaginary_freqs = [f for f in freqs if np.iscomplex(f)]
+    
+    # 3. Raw Hessian Analysis (Curvature only, no mass)
+    hessian_raw = vib.get_vibrations().get_hessian_2d()
+
+    # Eigenvalues of the raw Hessian (units: eV/Angstrom^2)
+    raw_evals = np.linalg.eigvalsh(hessian_raw)
+    
+    # Count negative eigenvalues (ignoring tiny numerical noise near 0)
+    # A threshold of -1e-5 is usually safe to separate noise from real curvature
+    negative_evals = [val for val in raw_evals if val < -eval_tol]
+    
+    results = {
+        "is_saddle_point": len(negative_evals) == 1,
+        
+        # Vibrational data
+        "n_imaginary_freqs": len(imaginary_freqs),
+        "imaginary_freq_val": imaginary_freqs[0] if imaginary_freqs else None,
+        "all_freqs_cm1": np.round(freqs, 3),
+        
+        # Raw Hessian data
+        "n_negative_evals": len(negative_evals),
+        "raw_eigenvalues": np.round(raw_evals, 3),
+        "lowest_eval": raw_evals[0]
+    }
+    
+    # Clean up ASE temporary files
+    vib.clean()
+    
+    return results
+
