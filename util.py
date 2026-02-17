@@ -378,3 +378,94 @@ def check_saddle_point(atoms, eval_tol=0.1):
     
     return results
 
+
+def minimize_eigenval(
+    population: torch.Tensor,
+    obj_params: dict,
+    filter: bool = True,
+    show: bool = False,
+    bad_eigenval: float = 1e6,
+) -> torch.Tensor:
+    """
+    Evaluate population based on minimizing the lowest eigenvalue from saddle point analysis.
+    Works like evaluate_population_with_calc but uses the 'lowest_eval' result from 
+    check_saddle_point function.
+    
+    This objective function is useful for evolutionary algorithms targeting transition state 
+    optimization, where you want to maximize the negative curvature (minimize eigenvalue).
+    
+    Args:
+        population: torch.Tensor of candidate solutions
+        obj_params: dict with structure parameters (founder_atoms, fixed_atoms, free_atoms, etc.)
+        filter: if True, penalize structures with eigenvalue > eval_cutoff
+        show: if True, visualize the structures sorted by eigenvalue
+        bad_eigenval: penalty multiplier for filtered structures (default 1e6)
+    
+    Returns:
+        torch.Tensor of eigenvalue objectives (to be minimized)
+    """
+    founder_atoms = decode(obj_params["founder_atoms"])
+    fixed_atoms = decode(obj_params["fixed_atoms"])
+    free_atoms = decode(obj_params["free_atoms"])
+
+    frozen_atoms_raw = obj_params.get("frozen_atoms", None)
+    frozen_atoms = (
+        decode(frozen_atoms_raw) if frozen_atoms_raw is not None else None
+    )
+    frozen_indices = obj_params.get("frozen_indices", [])
+
+    free_indices = obj_params.get("free_indices")
+    if free_indices is None:
+        if free_atoms.info is None or "indices" not in free_atoms.info:
+            raise ValueError(
+                "free_indices missing: set obj_params['free_indices'] or free_atoms.info['indices']."
+            )
+        free_indices = free_atoms.info["indices"]
+
+    calc = init_calc(obj_params["calc"], obj_params["device"])
+
+    atoms_list = obj_params.get("relaxed_atoms_list", None)
+    if atoms_list is None:
+        atoms_list = solutions_to_atoms_list(
+            solutions=population,
+            founder_atoms=founder_atoms,
+            fixed_atoms=fixed_atoms,
+            fixed_indices=obj_params["fixed_indices"],
+            free_atoms=free_atoms,
+            calc=calc,
+            frozen_atoms=frozen_atoms,
+            frozen_indices=frozen_indices,
+        )
+
+    # Evaluate lowest eigenvalue for each structure
+    eigenvalues = calc_atoms_list(
+        atoms_list,
+        func=lambda atoms: check_saddle_point(atoms)["lowest_eval"],
+        desc="Eigenvalue Evaluation",
+        multiproc=obj_params["multiproc"],
+        n_proc=obj_params["n_proc"],
+        progress_bar=obj_params["progress_bar"],
+        kwargs={},
+    )
+
+    if filter:
+        eval_cutoff = obj_params.get("eval_cutoff", -0.1)
+        updated_eigenvalues = []
+        for atoms, eigenval in zip(atoms_list, eigenvalues):
+            if eigenval < eval_cutoff:
+                # Good saddle point: minimize the eigenvalue
+                updated_eigenvalues.append(eigenval)
+            else:
+                # Poor saddle point: penalize with large positive value
+                updated_eigenvalues.append(bad_eigenval)
+        eigenvalues = updated_eigenvalues
+
+    if show:
+        atoms_list_sorted = [
+            atoms for _, atoms in sorted(zip(eigenvalues, atoms_list))
+        ]
+        view(atoms_list_sorted)
+
+    return torch.Tensor(eigenvalues)
+
+
