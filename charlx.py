@@ -532,19 +532,36 @@ class CHARLX(CHARLES):
     CHARLX with support for fixed (always constrained) and frozen (sampling-only) atoms.
     """
 
-    def __init__(self, fixer, relaxer, n_gens, *args, **kwargs):
+    def __init__(self, n_gens, fixer, relaxer = None, ts_optimizer = None, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fixer = fixer
-        self.relaxer = relaxer
+
+        if relaxer != None:
+            self.relaxer = relaxer
+            self.ts_opt = False
+        elif ts_optimizer != None:
+            self.ts_optimizer = ts_optimizer
+            self.ts_opt = True
+        else:
+            pass
+
         self.relaxed_atoms_list = None
         self.n_gens = n_gens
         self.curr_gen = 0
 
     def ask(self):
         self.solutions = super().ask()
-        self.solutions = self.relaxer.refresh_indices(self.solutions)
-        self.solutions, self.relaxed_atoms_list = self.relaxer.relax(
-            self.solutions, gen=self.curr_gen
-        )
+
+        if self.ts_opt == False:
+            self.solutions = self.relaxer.refresh_indices(self.solutions)
+            self.solutions, self.relaxed_atoms_list = self.relaxer.relax(
+                self.solutions, gen=self.curr_gen
+            )
+        else:
+            self.solutions = self.ts_optimizer.refresh_indices(self.solutions)
+            self.solutions, self.relaxed_atoms_list = self.ts_optimizer.optimize(
+                self.solutions, gen=self.curr_gen
+            )
+
         self.curr_gen += 1
         return self.solutions
