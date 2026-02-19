@@ -339,44 +339,69 @@ def check_saddle_point(atoms, eval_tol=0.1):
     """
     Quantifies saddle point quality using both mass-weighted frequencies 
     and raw Hessian eigenvalues.
+    
+    Safe for multiprocessing - uses temporary directories to avoid cache conflicts.
     """
-    # 1. Run the vibration analysis
-    vib = Vibrations(atoms)
-    vib.run()
+    import tempfile
+    import os
+    from pathlib import Path
     
-    # 2. Vibrational Frequency Analysis (Mass-Weighted)
-    freqs = vib.get_frequencies()
-    # In ASE, imaginary frequencies are returned as complex numbers (e.g., 0+500j)
-    imaginary_freqs = [f for f in freqs if np.iscomplex(f)]
-    
-    # 3. Raw Hessian Analysis (Curvature only, no mass)
-    hessian_raw = vib.get_vibrations().get_hessian_2d()
+    # Create a temporary directory for this process's vibration cache
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Change to temp directory to avoid cache conflicts in multiprocessing
+        original_cwd = os.getcwd()
+        os.chdir(tmpdir)
+        
+        try:
+            # 1. Run the vibration analysis
+            vib = Vibrations(atoms)
+            vib.run()
+            
+            # 2. Vibrational Frequency Analysis (Mass-Weighted)
+            freqs = vib.get_frequencies()
+            # In ASE, imaginary frequencies are returned as complex numbers (e.g., 0+500j)
+            imaginary_freqs = [f for f in freqs if np.iscomplex(f)]
+            
+            # 3. Raw Hessian Analysis (Curvature only, no mass)
+            hessian_raw = vib.get_vibrations().get_hessian_2d()
 
-    # Eigenvalues of the raw Hessian (units: eV/Angstrom^2)
-    raw_evals = np.linalg.eigvalsh(hessian_raw)
-    
-    # Count negative eigenvalues (ignoring tiny numerical noise near 0)
-    # A threshold of -1e-5 is usually safe to separate noise from real curvature
-    negative_evals = [val for val in raw_evals if val < -eval_tol]
-    
-    results = {
-        "is_saddle_point": len(negative_evals) == 1,
+            # Eigenvalues of the raw Hessian (units: eV/Angstrom^2)
+            raw_evals = np.linalg.eigvalsh(hessian_raw)
+            
+            # Count negative eigenvalues (ignoring tiny numerical noise near 0)
+            # A threshold of -1e-5 is usually safe to separate noise from real curvature
+            negative_evals = [val for val in raw_evals if val < -eval_tol]
+            
+            results = {
+                "is_saddle_point": len(negative_evals) == 1,
+                
+                # Vibrational data
+                "n_imaginary_freqs": len(imaginary_freqs),
+                "imaginary_freq_val": imaginary_freqs[0] if imaginary_freqs else None,
+                "all_freqs_cm1": np.round(freqs, 3),
+                
+                # Raw Hessian data
+                "n_negative_evals": len(negative_evals),
+                "raw_eigenvalues": np.round(raw_evals, 3),
+                "lowest_eval": raw_evals[0]
+            }
+            
+            # Clean up ASE temporary files
+            vib.clean()
+            
+            return results
         
-        # Vibrational data
-        "n_imaginary_freqs": len(imaginary_freqs),
-        "imaginary_freq_val": imaginary_freqs[0] if imaginary_freqs else None,
-        "all_freqs_cm1": np.round(freqs, 3),
-        
-        # Raw Hessian data
-        "n_negative_evals": len(negative_evals),
-        "raw_eigenvalues": np.round(raw_evals, 3),
-        "lowest_eval": raw_evals[0]
-    }
-    
-    # Clean up ASE temporary files
-    vib.clean()
-    
-    return results
+        finally:
+            # Always return to original directory
+            os.chdir(original_cwd)
+
+
+def get_lowest_eigenvalue(atoms, kwargs=None):
+    """
+    Helper function to extract lowest eigenvalue from an atoms object.
+    Used for multiprocessing in minimize_eigenval.
+    """
+    return check_saddle_point(atoms)["lowest_eval"]
 
 
 def minimize_eigenval(
@@ -440,7 +465,7 @@ def minimize_eigenval(
     # Evaluate lowest eigenvalue for each structure
     eigenvalues = calc_atoms_list(
         atoms_list,
-        func=lambda atoms: check_saddle_point(atoms)["lowest_eval"],
+        func=get_lowest_eigenvalue,
         desc="Eigenvalue Evaluation",
         multiproc=obj_params["multiproc"],
         n_proc=obj_params["n_proc"],
