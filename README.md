@@ -12,4 +12,7 @@ pip install -e foobench/
 git clone https://github.com/bhartl/CondEvo.git
 pip install -e CondEvo/
 pip install ipykernel seaborn ase mace-torch sella
+
+# If using a CUDA-enabled GPU:
+pip install --upgrade "jax[cuda12_local]==0.4.36" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
 ```
