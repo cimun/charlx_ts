@@ -13,4 +13,3 @@ git clone https://github.com/bhartl/CondEvo.git
 pip install -e CondEvo/
 pip install ipykernel seaborn ase mace-torch
 ```
-
